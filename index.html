@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>环流 - 交互增强版</title>
+    <style>
+        /* --- 全局重置 --- */
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        
+        body, html {
+            height: 100%;
+            background-color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            user-select: none; /* 禁止选中文本，增加APP感 */
+        }
+
+        /* --- 手机主容器 --- */
+        .mobile-container {
+            width: 375px;
+            height: 100vh;
+            max-height: 812px;
+            background-color: #f8f8f8;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+
+        /* =========================================
+           1. 提示气泡样式 (Toast)
+           ========================================= */
+        .mini-toast {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.75); /* 深色半透明背景 */
+            color: #fff;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            pointer-events: none; /* 让提示框不妨碍点击 */
+            opacity: 0;
+            transform: scale(0.9);
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 2000;
+            white-space: nowrap; /* 不换行 */
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+        }
+
+        .mini-toast.visible {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* 按钮按压变淡效果 (1秒恢复) */
+        .btn-dimmed {
+            opacity: 0.4 !important;
+            transition: opacity 0.1s;
+        }
+
+        /* 收藏点亮后的红色爱心 */
+        .icon-btn.fav-active .img-fav {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ff3434' stroke='%23ff3434' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z'%3E%3C/path%3E%3C/svg%3E") !important;
+        }
+        .icon-btn.fav-active { color: #ff3434; }
+
+        /* =========================================
+           2. 引导层 (Intro Layer)
+           ========================================= */
+        #intro-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 500;
+            transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.6s ease;
+        }
+        #intro-layer.dismissed { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+
+        .splash-bg {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #fff;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            border: 4px solid transparent; border-image: linear-gradient(to bottom right, #4caf50, #8bc34a) 1;
+            font-family: "Songti SC", "SimSun", serif;
+        }
+        .logo-wrapper { width: 120px; height: 120px; margin-bottom: 40px; position: relative; display: flex; justify-content: center; align-items: center; animation: floatUp 3s ease-in-out infinite; margin-top: -60px; }
+        .leaf-svg { width: 80px; height: 80px; fill: #2e7d32; filter: drop-shadow(0 5px 10px rgba(46, 125, 50, 0.3)); }
+        .ring-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; fill: none; stroke: #81c784; stroke-width: 1.5; stroke-linecap: round; opacity: 0.6; animation: spin 10s linear infinite; }
+        .slogan-container { text-align: center; color: #000; }
+        .slogan-main { font-size: 32px; font-weight: 600; letter-spacing: 3px; margin-bottom: 16px; opacity: 0; animation: fadeInUp 1s ease-out forwards 0.3s; }
+        .slogan-sub { font-size: 18px; font-weight: 400; color: #555; letter-spacing: 1px; opacity: 0; animation: fadeInUp 1s ease-out forwards 0.6s; position: relative; display: inline-block; }
+        .slogan-sub::after { content: ''; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); width: 30px; height: 2px; background: linear-gradient(to right, #4caf50, #2e7d32); }
+        .footer-brand { position: absolute; bottom: 50px; font-size: 16px; font-weight: bold; color: #2e7d32; letter-spacing: 4px; opacity: 0; animation: fadeIn 1.5s ease-out forwards 1s; border: 1px solid #2e7d32; padding: 4px 12px; border-radius: 20px; }
+
+        #modal-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.4); backdrop-filter: blur(2px); display: flex; justify-content: center; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        #modal-overlay.visible { opacity: 1; pointer-events: auto; }
+        .rec-card { width: 290px; background: #fff; border-radius: 16px; padding: 24px 20px; text-align: center; box-shadow: 0 15px 50px rgba(0,0,0,0.3); transform: scale(0.9) translateY(20px); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        #modal-overlay.visible .rec-card { transform: scale(1) translateY(0); }
+        .rec-title { font-size: 18px; font-weight: 700; color: #333; margin-bottom: 16px; }
+        .rec-img-box { width: 140px; height: 140px; margin: 0 auto 12px; border-radius: 8px; overflow: hidden; background: #f0f0f0; }
+        .rec-img { width: 100%; height: 100%; object-fit: cover; }
+        .rec-name { font-size: 14px; color: #555; margin-bottom: 6px; font-weight: 500; }
+        .rec-price { color: #ff3434; font-size: 20px; font-weight: bold; margin-bottom: 20px; }
+        .rec-btn { background: linear-gradient(90deg, #4caf50, #2e7d32); color: #fff; border: none; padding: 12px 0; width: 100%; border-radius: 25px; font-size: 15px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 10px rgba(46, 125, 50, 0.3); transition: transform 0.1s; }
+        .rec-btn:active { transform: scale(0.98); }
+
+        @keyframes floatUp { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* =========================================
+           3. 商品详情页 (Control Version)
+           ========================================= */
+        #product-page { width: 100%; height: 100%; overflow-y: auto; background-color: #f8f8f8; padding-bottom: 90px; }
+        #product-page::-webkit-scrollbar { display: none; }
+
+        .nav-bar { height: 50px; background: #fff; display: flex; align-items: center; padding: 0 12px; position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 0 rgba(0,0,0,0.05); }
+        .nav-left, .nav-right { width: 60px; display: flex; align-items: center; }
+        .nav-right { justify-content: flex-end; }
+        .nav-back { font-size: 24px; color: #333; cursor: pointer; padding: 5px; } /* 增加点击区域 */
+        .nav-title { flex: 1; text-align: center; font-size: 17px; font-weight: 600; color: #000; }
+        
+        .circle-menu-btn { width: 32px; height: 32px; background-color: #fff; border-radius: 50%; display: flex; justify-content: center; align-items: center; gap: 3px; border: 1px solid #f0f0f0; box-shadow: 0 2px 6px rgba(0,0,0,0.08); cursor: pointer; }
+        .circle-menu-btn span { width: 3px; height: 3px; background-color: #333; border-radius: 50%; }
+
+        .product-image-area { background: #fff; margin-bottom: 12px; }
+        .slider-viewport { width: 100%; height: 320px; overflow: hidden; position: relative; background-color: #f0f0f0; }
+        .slider-wrapper { display: flex; width: 100%; height: 100%; transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
+        .slide-img { width: 100%; height: 100%; flex-shrink: 0; object-fit: cover; display: block; }
+        .thumb-list { display: flex; padding: 12px 16px; gap: 10px; justify-content: center; }
+        .thumb-item { width: 50px; height: 50px; border-radius: 6px; background-color: #eee; overflow: hidden; border: 2px solid transparent; transition: border-color 0.2s; }
+        .thumb-item.active { border-color: #ff3434; }
+        .thumb-img { width: 100%; height: 100%; object-fit: cover; }
+
+        .card-block { background: #fff; margin: 0 12px 12px 12px; padding: 16px; border-radius: 12px; }
+        .info-card { padding-bottom: 12px; }
+        .price-row { display: flex; align-items: flex-end; margin-bottom: 8px; }
+        .current-price { color: #ff3434; font-weight: 800; font-size: 28px; line-height: 1; }
+        .current-price span { font-size: 16px; margin-right: 2px; font-weight: 600; }
+        .condition-tag { background-color: #ffe8e8; color: #ff3434; font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 4px; margin-left: 8px; margin-bottom: 4px; }
+        .original-price { color: #999; font-size: 13px; text-decoration: line-through; margin-left: 10px; margin-bottom: 3px; }
+        .price-tip-bar { background-color: #fffbf2; color: #ff8800; font-size: 12px; padding: 6px 8px; border-radius: 4px; margin-bottom: 12px; display: inline-block; font-weight: 500; cursor: pointer; }
+        .product-title { font-size: 17px; font-weight: 700; color: #111; line-height: 1.4; margin-bottom: 10px; }
+        .meta-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #888; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f7f7f7; }
+        .meta-left span { color: #666; font-weight: 500; }
+
+        .inspection-card { display: flex; flex-direction: column; cursor: pointer; } /* 增加手型，暗示可点 */
+        .insp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .insp-title { font-weight: 700; font-size: 15px; color: #333; display: flex; align-items: center; }
+        .insp-badge { background: #ff3434; color: white; font-size: 10px; padding: 2px 4px; border-radius: 3px; margin-right: 6px; }
+        .insp-score { color: #ff3434; font-weight: 700; font-size: 16px; font-style: italic; }
+        .insp-grid { display: flex; gap: 8px; pointer-events: none; /* 让点击事件穿透到父级卡片 */ }
+        .insp-item { flex: 1; background: #f9f9f9; padding: 10px 5px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+        .insp-label { font-size: 10px; color: #999; margin-bottom: 4px; }
+        .insp-val { font-size: 12px; color: #333; font-weight: 600; }
+
+        .service-row { background: none; padding: 0 4px; display: flex; gap: 15px; margin-top: 5px; cursor: default; }
+        .service-item { font-size: 11px; color: #666; display: flex; align-items: center; }
+        .check-icon { width: 12px; height: 12px; margin-right: 4px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ff3434'%3E%3Cpath d='M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E"); }
+
+        .bottom-bar { position: fixed; bottom: 0; width: 375px; left: 50%; transform: translateX(-50%); height: 54px; background: #fff; display: flex; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); z-index: 190; padding-bottom: constant(safe-area-inset-bottom); padding-bottom: env(safe-area-inset-bottom); }
+        .icons-container { flex: 1.1; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #eee; }
+        .icon-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666; font-size: 10px; height: 100%; width: 33%; cursor: pointer; transition: opacity 0.2s; }
+        .btn-img { width: 22px; height: 22px; margin-bottom: 2px; background-repeat: no-repeat; background-position: center; background-size: contain; transition: background-image 0.2s; }
+        .img-service { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'%3E%3C/path%3E%3C/svg%3E"); }
+        .img-fav { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z'%3E%3C/path%3E%3C/svg%3E"); }
+        .img-cart { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='9' cy='21' r='1'%3E%3C/circle%3E%3Ccircle cx='20' cy='21' r='1'%3E%3C/circle%3E%3Cpath d='M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6'%3E%3C/path%3E%3C/svg%3E"); }
+        .btn-buy { flex: 1; background: linear-gradient(90deg, #ff5050, #ff2a2a); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+
+    </style>
+</head>
+<body>
+
+    <div class="mobile-container">
+        
+        <!-- ====================================
+             1. 引导层 (Intro Layer)
+        ==================================== -->
+        <div id="intro-layer">
+            <div class="splash-bg">
+                <div class="logo-wrapper">
+                    <svg class="ring-svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" stroke-dasharray="20 10" /></svg>
+                    <svg class="leaf-svg" viewBox="0 0 24 24"><path d="M17,8C8,10 5.9,16.17 3.82,21.34L5.71,22L6.66,19.7C7.14,19.87 7.64,20 8,20C19,20 22,3 22,3C21,5 14,5.25 9,6.25C4,7.25 2,11.5 2,13.5C2,15.5 3.75,17.25 3.75,17.25C7,8 17,8 17,8Z" /></svg>
+                </div>
+                <div class="slogan-container">
+                    <div class="slogan-main">重新定义拥有</div>
+                    <div class="slogan-sub">让生活更环保</div>
+                </div>
+                <div class="footer-brand">环流</div>
+            </div>
+
+            <div id="modal-overlay">
+                <div class="rec-card">
+                    <div class="rec-title">为您推荐</div>
+                    <div class="rec-img-box">
+                        <img src="https://i.imgur.com/2EGB6Mx.jpeg" class="rec-img">
+                    </div>
+                    <div class="rec-name">幻彩 X50 Pro 12GB+256GB</div>
+                    <div class="rec-price">¥ 2399</div>
+                    <button class="rec-btn" onclick="enterProductPage()">立即查看</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ====================================
+             2. 商品详情页 (Control Version)
+        ==================================== -->
+        <div id="product-page">
+            <div class="nav-bar">
+                <!-- 交互点：返回 -->
+                <div class="nav-left">
+                    <div class="nav-back" onclick="showTip(this, '暂时无法退出，请仔细浏览当前页面', 'bottom')">&#10094;</div>
+                </div>
+                <div class="nav-title">商品详情</div>
+                <!-- 交互点：更多 -->
+                <div class="nav-right">
+                    <div class="circle-menu-btn" onclick="showTip(this, '更多功能菜单', 'bottom')"><span></span><span></span><span></span></div>
+                </div>
+            </div>
+
+            <div class="product-image-area">
+                <div class="slider-viewport" id="sliderViewport">
+                    <div class="slider-wrapper" id="sliderWrapper">
+                        <img src="https://i.imgur.com/2EGB6Mx.jpeg" class="slide-img">
+                        <img src="https://i.imgur.com/jXqIAte.jpeg" class="slide-img">
+                        <img src="https://i.imgur.com/OwFfGrI.jpeg" class="slide-img">
+                        <img src="https://i.imgur.com/5InCshs.jpeg" class="slide-img">
+                    </div>
+                </div>
+                <div class="thumb-list" id="thumbList">
+                    <div class="thumb-item active" onclick="jumpTo(0)"><img src="https://i.imgur.com/2EGB6Mx.jpeg" class="thumb-img"></div>
+                    <div class="thumb-item" onclick="jumpTo(1)"><img src="https://i.imgur.com/jXqIAte.jpeg" class="thumb-img"></div>
+                    <div class="thumb-item" onclick="jumpTo(2)"><img src="https://i.imgur.com/OwFfGrI.jpeg" class="thumb-img"></div>
+                    <div class="thumb-item" onclick="jumpTo(3)"><img src="https://i.imgur.com/5InCshs.jpeg" class="thumb-img"></div>
+                </div>
+            </div>
+
+            <div class="card-block info-card">
+                <div class="price-row">
+                    <div class="current-price"><span>¥</span>2399</div>
+                    <div class="condition-tag">95新</div>
+                    <div class="original-price">原价 ¥ 5699</div>
+                </div>
+                <!-- 交互点：价格条 -->
+                <div class="price-tip-bar" onclick="showTip(this, '当前价格极具性价比', 'top')">低于同成色均价，品质适中</div>
+                <div class="product-title">【95新】幻彩 X50 Pro 12GB+256GB 白色 原装正品</div>
+                
+                <div class="meta-row">
+                    <div class="meta-left"><span>顺丰包邮</span></div>
+                </div>
+            </div>
+
+            <!-- 交互点：验机报告 -->
+            <div class="card-block inspection-card" onclick="showTip(this, '查看 32 项检测详情', 'center')">
+                <div class="insp-header">
+                    <div class="insp-title"><span class="insp-badge">官方验</span> 验机报告</div>
+                    <div class="insp-score">95新·S <span class="insp-more">&#10095;</span></div>
+                </div>
+                <div class="insp-grid">
+                    <div class="insp-item"><div class="insp-label">外观成色</div><div class="insp-val">轻微使用痕迹</div></div>
+                    <div class="insp-item"><div class="insp-label">电池健康</div><div class="insp-val">94%</div></div>
+                    <div class="insp-item"><div class="insp-label">功能状态</div><div class="insp-val">26项正常</div></div>
+                </div>
+                <div class="service-row">
+                    <div class="service-item"><div class="check-icon"></div>七天无理由</div>
+                    <div class="service-item"><div class="check-icon"></div>一年质保</div>
+                    <div class="service-item"><div class="check-icon"></div>正品保障</div>
+                </div>
+            </div>
+
+            <div style="padding: 10px; color: #ccc; font-size: 12px; text-align: center;">
+                <p>— 宝贝详情 —</p><br><p>卖家描述：手机保护得很好，一直带壳使用。</p><br><br><br><br>
+            </div>
+            
+            <div class="bottom-bar">
+                <div class="icons-container">
+                    <!-- 交互点：客服 -->
+                    <div class="icon-btn" onclick="handleService(this)">
+                        <div class="btn-img img-service"></div>客服
+                    </div>
+                    <!-- 交互点：收藏 -->
+                    <div class="icon-btn" onclick="handleFav(this)">
+                        <div class="btn-img img-fav"></div>收藏
+                    </div>
+                    <!-- 交互点：购物车 -->
+                    <div class="icon-btn" onclick="handleCart(this)">
+                        <div class="btn-img img-cart"></div>购物车
+                    </div>
+                </div>
+                <!-- 交互点：购买 -->
+                <div class="btn-buy" onclick="handleBuy(this)">立即购买</div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 逻辑脚本 -->
+    <script>
+        /* --- 开屏与弹窗逻辑 --- */
+        window.addEventListener('load', () => {
+            setTimeout(() => { document.getElementById('modal-overlay').classList.add('visible'); }, 2500);
+        });
+
+        function enterProductPage() {
+            document.getElementById('intro-layer').classList.add('dismissed');
+        }
+
+        /* --- 交互提示系统 (Toast Logic) --- */
+        
+        // 通用提示函数：根据按钮位置自动显示气泡
+        function showTip(element, text, posType) {
+            // 防止重复点击过快
+            if(element.dataset.toastActive) return;
+            element.dataset.toastActive = true;
+
+            const rect = element.getBoundingClientRect();
+            const toast = document.createElement('div');
+            toast.className = 'mini-toast';
+            toast.innerText = text;
+            
+            document.body.appendChild(toast);
+
+            // 临时渲染以获取宽度
+            toast.style.visibility = 'hidden';
+            
+            // 计算位置
+            const toastRect = toast.getBoundingClientRect();
+            let top, left;
+
+            // 水平居中于按钮
+            left = rect.left + (rect.width / 2) - (toastRect.width / 2);
+
+            // 垂直定位
+            if (posType === 'top') {
+                top = rect.top - toastRect.height - 8;
+            } else if (posType === 'bottom') {
+                top = rect.bottom + 8;
+            } else if (posType === 'center') {
+                top = rect.top + (rect.height / 2) - (toastRect.height / 2);
+            } else if (posType === 'above-bar') { // 专门给底部栏用
+                top = rect.top - toastRect.height - 15;
+            }
+
+            toast.style.left = `${left}px`;
+            toast.style.top = `${top}px`;
+            toast.style.visibility = 'visible';
+            
+            // 动画流程
+            requestAnimationFrame(() => {
+                toast.classList.add('visible');
+            });
+
+            setTimeout(() => {
+                toast.classList.remove('visible');
+                setTimeout(() => {
+                    toast.remove();
+                    delete element.dataset.toastActive;
+                }, 200);
+            }, 2000); // 提示停留2秒
+        }
+
+        /* --- 底部按钮特定逻辑 --- */
+
+        // 通用按压效果 (1秒变淡)
+        function pressEffect(el) {
+            el.classList.add('btn-dimmed');
+            setTimeout(() => {
+                el.classList.remove('btn-dimmed');
+            }, 1000); // 1秒恢复
+        }
+
+        function handleService(el) {
+            pressEffect(el);
+            showTip(el, "客服当前忙，请稍后", "above-bar");
+        }
+
+        function handleFav(el) {
+            pressEffect(el);
+            // 切换红色爱心状态
+            if (!el.classList.contains('fav-active')) {
+                el.classList.add('fav-active');
+                showTip(el, "收藏成功", "above-bar");
+            } else {
+                el.classList.remove('fav-active');
+                showTip(el, "已取消收藏", "above-bar");
+            }
+        }
+
+        function handleCart(el) {
+            pressEffect(el);
+            showTip(el, "已加入购物车", "above-bar");
+        }
+
+        function handleBuy(el) {
+            pressEffect(el);
+            showTip(el, "正在跳转支付页面...", "above-bar");
+            
+            // 2秒后显示第二段提示
+            setTimeout(() => {
+                showTip(el, "本实验暂不支持您花费金钱", "above-bar");
+            }, 2200);
+        }
+
+        /* --- 轮播图逻辑 --- */
+        let currentIndex = 0;
+        const totalSlides = 4;
+        const wrapper = document.getElementById('sliderWrapper');
+        const viewport = document.getElementById('sliderViewport');
+        const thumbs = document.querySelectorAll('.thumb-item');
+
+        function updateSlider() {
+            wrapper.style.transform = `translateX(${-currentIndex * 100}%)`;
+            thumbs.forEach((thumb, index) => {
+                thumb.classList.toggle('active', index === currentIndex);
+            });
+        }
+        function jumpTo(index) { currentIndex = index; updateSlider(); }
+        
+        let startX = 0;
+        viewport.addEventListener('touchstart', e => startX = e.touches[0].clientX, {passive: true});
+        viewport.addEventListener('touchend', e => {
+            if (e.changedTouches[0].clientX - startX > 50) {
+                currentIndex = (currentIndex - 1 + totalSlides) % totalSlides;
+                updateSlider();
+            } else if (startX - e.changedTouches[0].clientX > 50) {
+                currentIndex = (currentIndex + 1) % totalSlides;
+                updateSlider();
+            }
+        }, {passive: true});
+    </script>
+</body>
+</html>
